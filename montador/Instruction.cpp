@@ -41,7 +41,7 @@ void Instruction::split(string instruction) {
     // get op1
     i = 0;
     for ( ; i < instruction.size(); i++) {
-        if (instruction[i] == ',') {
+        if (i != 0 && instruction[i] == ',') {
             break;
         }
         if (operation != "STOP" && operation != "CONST" && operation != "SPACE") {
@@ -70,7 +70,7 @@ void Instruction::split(string instruction) {
     // get op2
     i = 0;
     for ( ; i < instruction.size(); i++) {
-        if (instruction[i] == ',') {
+        if (i != 0 && instruction[i] == ',') {
             break;
         }
         if (operation != "STOP" && operation != "CONST" && operation != "SPACE") {

@@ -19,17 +19,15 @@ int main(int argc, char *argv[]) {
 	Assembler assembler;
 	string obj = assembler.process();
 
-	cout << obj << endl;
-
 	string outputFile = inputFile.substr(0, inputFile.size()-4) + ".obj";
 	ofstream objFile(outputFile);
 	objFile << obj;
 	objFile.close();
 
 	if (Error::count > 0) {
-		cout << Error::count << " erros: falha ao compilar " << inputFile << endl;
+		cout << Error::count << " erros: Arquivo objeto não gerado" << endl;
 	} else {
-		cout << Error::count << "Arquivo compilado sem falhas -> " << outputFile << endl;
+		cout << "Arquivo compilado com sucesso -> '" << outputFile << '\'' << endl;
 	}
 
 	return 0;

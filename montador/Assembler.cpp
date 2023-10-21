@@ -51,6 +51,12 @@ string passParametersMacro(string macroLine, string macroDeclaration, string arg
 	return macroLine;
 }
 
+bool isSymbolInvalid(string symbol) {
+	for (int i = 0; i < symbol.size(); i++)
+		if (symbol[i] != '_' && !isalpha(symbol[i]) && !isdigit(symbol[i])) return true;
+	return false;
+}
+
 
 void Assembler::fillMacro(vector<string> &macro) {
 	Source& src = Source::GetInstance();
@@ -81,13 +87,28 @@ void Assembler::preProcess() {
 	vector<string> macro2;
 	string macro2Name;
 	string macro2Declaration;
+	string pendingLabel;
+	int pendingLabelIdx = -1;
 	for (; lineCounter < src.getQtdLines(); lineCounter++) {
 		line = src.readLine(lineCounter);
 		Instruction instr(line);
 		TO_UPPER(instr.label);
 		TO_UPPER(instr.operation);
+		
+		// apenas rotulo
+		if (!instr.label.empty() && instr.operation.empty() && instr.op1.empty() && instr.op2.empty() && instr.op3.empty() && instr.arit1.empty() && instr.arit2.empty()) {
+			pendingLabelIdx = lineCounter;
+			pendingLabel = instr.label;
+			continue;
+		}
 
 		if (instr.operation == "MACRO") {
+			if (!pendingLabel.empty()) {
+				instr.label = pendingLabel + (instr.label.empty() ? "" : (':' + instr.label));
+				line = instr.label + ": " + line;
+				src.removeLine(pendingLabelIdx);
+				lineCounter--;
+			}
 			if (macro1.empty()) {
 				macro1Name = instr.label;
 				macro1Declaration = line;
@@ -119,6 +140,12 @@ void Assembler::preProcess() {
 			}
 			lineCounter -= macro2.size()+1;	// no caso de chamar outra macro
 		}
+
+		if (!instr.label.empty() || !instr.operation.empty() || !instr.op1.empty() || !instr.op2.empty() || !instr.op3.empty() || !instr.arit1.empty() && !instr.arit2.empty()) {
+			pendingLabelIdx = -1;
+			pendingLabel = "";
+		}
+
 	}
 
 	lineCounter = 0;
@@ -147,6 +174,7 @@ void Assembler::firstPass() {
 		preProcess();
 	}
 
+	string pendingLabel;
 	string line;
 	for (; lineCounter < src.getQtdLines(); lineCounter++) {
 		line = src.readLine(lineCounter);
@@ -156,26 +184,33 @@ void Assembler::firstPass() {
 		TO_UPPER(instr.op1);
 		TO_UPPER(instr.op2);
 
+		if (!pendingLabel.empty()) {
+			instr.label = pendingLabel + (instr.label.empty() ? "" : (':' + instr.label));
+		}
 
 		// se existe rotulo, pesquisar na tabela de simbolos
 		if (!instr.label.empty()) {
-
 			bool invalid = false;
 			if (isdigit(instr.label[0])) invalid = true;
-			else
-				for (int i = 0; i < instr.label.size(); i++)
-					if (instr.label[i] != '_' && !isalpha(instr.label[i]) && !isdigit(instr.label[i])) { invalid = true; break; }
+			else 
+				invalid = isSymbolInvalid(instr.label);
 
 			if (invalid) {
 				Error::print(Error::LEXICAL, lineCounter+1, "Rótulo '" + instr.label + "' inválido", line);
 			} else {
-				int idx = searchLabel(instr.label);
-				if (idx >= 0) {
-					Error::print(Error::SEMANTIC, lineCounter+1, "Rótulo '" + instr.label + "' redefinido", line);
-				} else {
-					insertLabel(instr.label);
+				if (pendingLabel.empty()) {
+					int idx = searchLabel(instr.label);
+					if (idx >= 0) {
+						Error::print(Error::SEMANTIC, lineCounter+1, "Rótulo '" + instr.label + "' redefinido", line);
+					} else {
+						insertLabel(instr.label);
+					}
 				}
 			}
+			if (!line.empty()) {
+				pendingLabel = "";
+			}
+
 		}
 
 		// Procura operacao na tabela de instruções
@@ -205,6 +240,8 @@ void Assembler::firstPass() {
 					positionCounter += 1;
 			} else {
 				if (instr.label.empty() && instr.operation.empty() && instr.op1.empty() && instr.op2.empty() && instr.op3.empty()) { // linha em branco
+				} else if (!instr.label.empty() && instr.operation.empty() && instr.op1.empty() && instr.op2.empty() && instr.op3.empty()) { // apenas rotulo
+					pendingLabel = instr.label;
 				} else
 					Error::print(Error::LEXICAL, lineCounter+1, "operacao '" + instr.operation + "' inválida", line);
 			}
@@ -250,18 +287,23 @@ string Assembler::secondPass() {
 				if (instr.op1.empty()) {
 					positionCounter += 1;
 					objCode += "0 ";
-				} else if (isdigit(instr.op1[0])) {
-					int size = stoi(instr.op1);
-					if (size < 1) {
-						Error::print(Error::SYNTACTIC, lineCounter+1, "diretiva '" + instr.operation + "' requer um argumento maior que 0", line);
-						positionCounter += 1;
+				}
+				else {
+					bool invalidArgument = false;
+					CHECK_NUMBER(instr.op1, invalidArgument);
+					
+					if (!invalidArgument) {
+						int size = stoi(instr.op1);
+						if (size < 1) {
+							Error::print(Error::SYNTACTIC, lineCounter+1, "diretiva '" + instr.operation + "' requer um argumento maior que 0", line);
+							positionCounter += 1;
+						} else {
+							positionCounter += size;
+							while (size--)	objCode += "0 ";
+						}
 					} else {
-						positionCounter += size;
-						while (size--)	objCode += "0 ";
+						Error::print(Error::SYNTACTIC, lineCounter+1, "argumento inválido para diretiva '" + instr.operation + "'", line);
 					}
-				} else {
-					positionCounter += 1;
-					Error::print(Error::SYNTACTIC, lineCounter+1, "argumento inválido para diretiva '" + instr.operation + "'", line);
 				}
 			} else if (instr.operation == "CONST") {
 					bool invalidArgument = false;
@@ -282,24 +324,28 @@ string Assembler::secondPass() {
 		}
 
 
-		// ROT: ADD X+1
 		if (instr.op1 != "") {
-			bool invalidNumber = false;
+			bool invalidArit1 = false;
 			int sum = 0;
 			if (!instr.arit1.empty()) {
 				string afterOperation = instr.arit1.substr(1, instr.arit1.size()-1);
-				CHECK_NUMBER(afterOperation, invalidNumber);
-				if (invalidNumber) {
-					Error::print(Error::SYNTACTIC, lineCounter+1, "expressão aritmética inválida", line);
+				CHECK_NUMBER(afterOperation, invalidArit1);
+				if (invalidArit1) {
+					Error::print(Error::LEXICAL, lineCounter+1, "expressão aritmética inválida", line);
 				} else {
 					sum = stoi(instr.arit1);
 				}
 			}
 
-			if (instr.operation != "CONST" && instr.operation != "STOP" && !isdigit(instr.op1[0])) {
+			if (!invalidArit1 && instr.operation != "CONST" && instr.operation != "STOP" && !isdigit(instr.op1[0])) {
 				int position = searchLabel(instr.op1);
+				bool invalid;
 				if (position < 0) {
-					Error::print(Error::SEMANTIC, lineCounter+1, "símbolo '" + instr.op1 +  "' não definido", line);
+					invalid = isSymbolInvalid(instr.op1);
+					if (!invalid)
+						Error::print(Error::SEMANTIC, lineCounter+1, "símbolo '" + instr.op1 +  "' não definido", line);
+					else
+						Error::print(Error::LEXICAL, lineCounter+1, "símbolo '" + instr.op1 +  "' inválido", line);
 				} else {
 					objCode += to_string(stoi(symbolTable[position].second) + sum) + " ";
 				}
@@ -307,25 +353,32 @@ string Assembler::secondPass() {
 		}
 
 		if (instr.op2 != "") {
-			bool invalidNumber = false;
+			bool invalidArit2 = false;
 			int sum = 0;
 			if (!instr.arit2.empty()) {
 				string afterOperation = instr.arit2.substr(1, instr.arit2.size()-1);
-				CHECK_NUMBER(afterOperation, invalidNumber);
-				if (invalidNumber) {
-					Error::print(Error::SYNTACTIC, lineCounter+1, "expressão aritmética inválida", line);
+				CHECK_NUMBER(afterOperation, invalidArit2);
+				if (invalidArit2) {
+					Error::print(Error::LEXICAL, lineCounter+1, "expressão aritmética inválida", line);
 				} else {
 					sum = stoi(instr.arit2);
 				}
 			}
 
-			if (instr.operation == "COPY" && !isdigit(instr.op2[0])) {
+			if (!invalidArit2 && instr.operation == "COPY" && !isdigit(instr.op2[0])) {
 				int position = searchLabel(instr.op2);
+				bool invalid;
 				if (position < 0) {
-					Error::print(Error::SEMANTIC, lineCounter+1, "símbolo '" + instr.op2 +  "' não definido", line);
+					invalid = isSymbolInvalid(instr.op2);
+					if (!invalid)
+						Error::print(Error::SEMANTIC, lineCounter+1, "símbolo '" + instr.op2 +  "' não definido", line);
+					else
+						Error::print(Error::LEXICAL, lineCounter+1, "símbolo '" + instr.op2 +  "' inválido", line);
 				} else {
 					objCode += to_string(stoi(symbolTable[position].second)+sum) + " ";
 				}
+			} else {
+				Error::print(Error::LEXICAL, lineCounter+1, "símbolo '" + instr.op2 +  "' inválido", line);
 			}
 		}
 	}

@@ -11,7 +11,7 @@ Source& Source::GetInstance() {
 		instance = new Source();
 	}
 
-	string formatTest = "ROT:	 STORE  	TMP+2     ;comentario      ";
+	string formatTest = "   ROT:	 STORE  	TMP+2     ;comentario      ";
 	LOG_D("\ninput: \"" << formatTest << "\", trimmed: \"" << Source::format(formatTest) << "\"");
 
 	return *instance;
@@ -32,9 +32,11 @@ Source::Source() {
 			if (line == "SECAO DATA" && isText == false) {
 				isData = false;
 				getline(file, line);
+				line = format(line);
 				while (line != "SECAO TEXT") {
 					dataCode.push_back(line);
 					getline(file, line);
+					line = format(line);
 				}
 			}
 			if (line == "SECAO TEXT") {
